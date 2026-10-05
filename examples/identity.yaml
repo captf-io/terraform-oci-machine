@@ -1,0 +1,64 @@
+# Copyright 2026 The CAPTF Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The credentials the OCI modules run with, and the TerraformClusterIdentity
+# that lets a namespace use them. Admin-applied and cluster-scoped: apply it
+# once per namespace list, before any cluster.
+#
+#   clusterctl generate yaml --from examples/identity.yaml | kubectl apply -f -
+#
+# Every key reaches the Job twice (https://captf.io/docs/user-guide/identities.html):
+# as an environment variable, which is how the OCI provider reads OCI_* (it
+# falls back from TF_VAR_<argument> to OCI_<ARGUMENT>, and the runner drops
+# TF_VAR_*), and as a file under /var/run/captf/credentials/<key>, which is
+# where OCI_PRIVATE_KEY_PATH points. The provider reads the key from that
+# file; it is not given as OCI_PRIVATE_KEY, which would take precedence. (The
+# key still reaches the Job's environment as oci_api_key.pem, like every key.)
+#
+# Config-file profiles (~/.oci/config) do not work: the Job's HOME is empty.
+# A management cluster on OCI can drop the API key and use instance
+# principals instead: OCI_AUTH: InstancePrincipal (the cluster module then
+# needs spec.variables.tenancy_id for node identity).
+#
+# The region is not here: it is a property of each cluster
+# (spec.variables.region on the TerraformCluster).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "${OCI_IDENTITY_NAME:=oci}"
+  namespace: "${OCI_IDENTITY_NAMESPACE:=captf-system}"
+type: Opaque
+stringData:
+  OCI_TENANCY_OCID: "${OCI_TENANCY_OCID:=ocid1.tenancy.oc1..replace-me}"
+  OCI_USER_OCID: "${OCI_USER_OCID:=ocid1.user.oc1..replace-me}"
+  OCI_FINGERPRINT: "${OCI_FINGERPRINT:=00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff}"
+  OCI_PRIVATE_KEY_PATH: /var/run/captf/credentials/oci_api_key.pem
+  # The API signing key of OCI_USER_OCID, unencrypted (or add
+  # OCI_PRIVATE_KEY_PASSWORD). Placeholder: paste the real key.
+  oci_api_key.pem: |
+    -----BEGIN PRIVATE KEY-----
+    replace-me
+    -----END PRIVATE KEY-----
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TerraformClusterIdentity
+metadata:
+  name: "${OCI_IDENTITY_NAME:=oci}"
+spec:
+  secretRef:
+    name: "${OCI_IDENTITY_NAME:=oci}"
+    namespace: "${OCI_IDENTITY_NAMESPACE:=captf-system}"
+  allowedNamespaces:
+    list:
+    - "${NAMESPACE}"

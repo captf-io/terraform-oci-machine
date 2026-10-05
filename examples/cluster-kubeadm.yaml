@@ -1,0 +1,291 @@
+# Copyright 2026 The CAPTF Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A kubeadm cluster on OCI: the API network load balancer and node NSGs from
+# the cluster module, a three-node control plane and a MachineDeployment of
+# workers from the machine module, and a MachinePool of workers from the
+# machinepool module, on a VCN you bring.
+#
+#   export NAMESPACE=team-a CLUSTER_NAME=demo KUBERNETES_VERSION=v1.34.1
+#   export OCI_COMPARTMENT_ID=ocid1.compartment.oc1..<id> OCI_REGION=us-ashburn-1
+#   export OCI_CONTROL_PLANE_SUBNET_ID=ocid1.subnet.oc1.iad.<id>
+#   export OCI_WORKER_SUBNET_ID=ocid1.subnet.oc1.iad.<id>
+#   export OCI_IMAGE_ID=ocid1.image.oc1.iad.<id>
+#   export OCI_NODE_TAG_NAMESPACE=<existing tag namespace> OCI_NODE_TAG_KEY=<its key>
+#   clusterctl generate yaml --from examples/cluster-kubeadm.yaml | kubectl apply -n "$NAMESPACE" -f -
+#
+# The MachinePool needs the MachinePool feature, on by default in CAPI v1.14.
+# To let OCI autoscaling own its size instead (on CPU utilization; the image
+# must run the Oracle Cloud Agent's Compute Instance Monitoring plugin), add
+# both autoscaler annotations to the MachinePool, drop spec.replicas, and set
+# autoscaled: true in the TerraformMachinePool's variables (switching modes
+# replaces the pool, so the module wants both):
+#
+#   cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "2"
+#   cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "10"
+#
+# Apply examples/identity.yaml first. OCI_IMAGE_ID is a node image of
+# KUBERNETES_VERSION in OCI_REGION with containerd, the kubelet and kubeadm,
+# such as one from image-builder. After the control plane is up, install the
+# OCI cloud controller manager (instance principals, securityListManagementMode
+# None; cluster/README.md "Limitations") and a CNI.
+#
+# Every node registers with provider-id oci://{{ v1.instance_id }}: CABPK's
+# cloud-config is a Jinja template, and cloud-init's Oracle datasource sets
+# instance_id to the instance OCID, so the Node's providerID equals the
+# machine module's provider_id output from the first registration.
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+spec:
+  clusterNetwork:
+    apiServerPort: 6443
+    pods:
+      cidrBlocks:
+      - "${POD_CIDR:=192.168.0.0/16}"
+    services:
+      cidrBlocks:
+      - "${SERVICE_CIDR:=10.128.0.0/12}"
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: "${CLUSTER_NAME}-control-plane"
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: TerraformCluster
+    name: "${CLUSTER_NAME}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TerraformCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+spec:
+  source:
+    image: ghcr.io/captf-io/oci-cluster:v0.1.0-opentofu
+  identityRef:
+    name: "${OCI_IDENTITY_NAME:=oci}"
+  # Machines and pools without their own identityRef use this one.
+  defaults:
+    identityRef:
+      name: "${OCI_IDENTITY_NAME:=oci}"
+  # cluster/README.md "Inputs". The load balancer stays private: the
+  # management cluster must reach the VCN (peering, a DRG or VPN), or set
+  # api_load_balancer_public with api_allowed_cidrs and a public subnet.
+  variables:
+    compartment_id: "${OCI_COMPARTMENT_ID}"
+    region: "${OCI_REGION}"
+    control_plane_subnet_id: "${OCI_CONTROL_PLANE_SUBNET_ID}"
+    worker_subnet_id: "${OCI_WORKER_SUBNET_ID}"
+    # The node dynamic group matches only this cluster's control-plane
+    # instances, by this defined tag (an existing namespace and key).
+    node_identity:
+      defined_tag:
+        namespace: "${OCI_NODE_TAG_NAMESPACE}"
+        key: "${OCI_NODE_TAG_KEY}"
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=3}
+  version: "${KUBERNETES_VERSION}"
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TerraformMachineTemplate
+        name: "${CLUSTER_NAME}-control-plane"
+  # A module that fails deterministically must not replace machines
+  # forever: three attempts, five minutes apart.
+  remediation:
+    maxRetry: 3
+    retryPeriodSeconds: 300
+  kubeadmConfigSpec:
+    # bindPort equals Cluster.spec.clusterNetwork.apiServerPort, the port
+    # the load balancer forwards to; kubeadm never reads the Cluster field.
+    initConfiguration:
+      localAPIEndpoint:
+        bindPort: 6443
+      nodeRegistration:
+        kubeletExtraArgs:
+        - name: cloud-provider
+          value: external
+        - name: provider-id
+          value: "oci://{{ v1.instance_id }}"
+    joinConfiguration:
+      controlPlane:
+        localAPIEndpoint:
+          bindPort: 6443
+      nodeRegistration:
+        kubeletExtraArgs:
+        - name: cloud-provider
+          value: external
+        - name: provider-id
+          value: "oci://{{ v1.instance_id }}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TerraformMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+spec:
+  template:
+    spec:
+      source:
+        image: ghcr.io/captf-io/oci-machine:v0.1.0-opentofu
+      variables:
+        image_id: "${OCI_IMAGE_ID}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT:=3}
+  # CAPI's webhook fills in the selector and the template labels.
+  selector:
+    matchLabels:
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+          name: "${CLUSTER_NAME}-md-0"
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TerraformMachineTemplate
+        name: "${CLUSTER_NAME}-md-0"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TerraformMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+spec:
+  template:
+    spec:
+      source:
+        image: ghcr.io/captf-io/oci-machine:v0.1.0-opentofu
+      variables:
+        image_id: "${OCI_IMAGE_ID}"
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+          - name: cloud-provider
+            value: external
+          - name: provider-id
+            value: "oci://{{ v1.instance_id }}"
+---
+# Workers: InfrastructureReady=False (the module's health output) is
+# unhealthy after the timeout. It starts at apply start, so the timeout must
+# exceed apply time plus one drift interval (default 30m): 45 minutes.
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineHealthCheck
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/deployment-name: "${CLUSTER_NAME}-md-0"
+  checks:
+    nodeStartupTimeoutSeconds: 1200
+    unhealthyMachineConditions:
+    - type: InfrastructureReady
+      status: "False"
+      timeoutSeconds: 2700
+---
+# Control plane: a longer remediation window, since replacing a
+# control-plane machine is costlier, and a longer node-startup window, since
+# kubeadm init or join does strictly more work than a worker join.
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineHealthCheck
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/control-plane: ""
+  checks:
+    nodeStartupTimeoutSeconds: 1800
+    unhealthyMachineConditions:
+    - type: InfrastructureReady
+      status: "False"
+      timeoutSeconds: 3600
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachinePool
+metadata:
+  name: "${CLUSTER_NAME}-pool-0"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_POOL_COUNT:=3}
+  template:
+    metadata:
+      labels:
+        # Registered through the module's boothook (machinepool/README.md
+        # "Node labels"). node-role.kubernetes.io/* would be dropped:
+        # NodeRestriction forbids a kubelet to set it.
+        node.kubernetes.io/pool: "${CLUSTER_NAME}-pool-0"
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfig
+          name: "${CLUSTER_NAME}-pool-0"
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TerraformMachinePool
+        name: "${CLUSTER_NAME}-pool-0"
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfig
+metadata:
+  name: "${CLUSTER_NAME}-pool-0"
+spec:
+  joinConfiguration:
+    nodeRegistration:
+      kubeletExtraArgs:
+      - name: cloud-provider
+        value: external
+      - name: provider-id
+        value: "oci://{{ v1.instance_id }}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TerraformMachinePool
+metadata:
+  name: "${CLUSTER_NAME}-pool-0"
+  labels:
+    # CAPTF finds the owning Cluster by this label.
+    cluster.x-k8s.io/cluster-name: "${CLUSTER_NAME}"
+spec:
+  source:
+    image: ghcr.io/captf-io/oci-machinepool:v0.1.0-opentofu
+  variables:
+    image_id: "${OCI_IMAGE_ID}"

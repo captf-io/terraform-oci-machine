@@ -1,0 +1,5 @@
+{
+  "attribute": "freeform_tags",
+  "expression": "local.tags",
+  "exempt": {}
+}
