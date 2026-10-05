@@ -12,7 +12,35 @@ registered in the API load balancer.
 
 Image: `ghcr.io/captf-io/oci-machine`. Contract:
 [machine role](https://captf.io/docs/module-author/contract/v1alpha1/machine.html).
-Design decisions: [DESIGN.md](DESIGN.md).
+Design decisions: [DESIGN.md](https://github.com/captf-io/terraform-oci-machine/blob/main/DESIGN.md).
+
+## Usage
+
+CAPTF runs this module from the module image `ghcr.io/captf-io/oci-machine`: set the image on
+a `TerraformMachine`'s `spec.source.image` (through a `TerraformMachineTemplate`), and the controller renders every
+input. The module is also published to the Terraform Registry as
+`captf-io/machine/oci` and can be called directly:
+
+```hcl
+module "machine" {
+  source  = "captf-io/machine/oci"
+  version = "~> 0.1"
+
+  # The contract inputs the controller would render (captf_contract,
+  # captf_cluster, captf_object, captf_tags, ...; see Inputs), and any
+  # user variables.
+}
+```
+
+Called directly, the module is a CAPTF root module first:
+
+- it configures its own `provider "oci"` block, so the calling
+  module cannot use `count`, `for_each` or `depends_on` on it, and the
+  provider takes its credentials from the environment (see Identity
+  Secret);
+- its providers are pinned to exact versions (`versions.tf`), which the
+  calling configuration has to accept;
+- you set the `captf_*` inputs yourself.
 
 ## What it creates
 
@@ -59,7 +87,7 @@ backend takes traffic once its TCP health check passes: inside the minutes
 - **The kubelet's provider ID.** Set
   `provider-id: oci://{{ v1.instance_id }}` and `cloud-provider: external`
   in the bootstrap configuration's `kubeletExtraArgs`, as
-  [`examples/cluster-kubeadm.yaml`](examples/cluster-kubeadm.yaml) does:
+  [`examples/cluster-kubeadm.yaml`](https://github.com/captf-io/terraform-oci-machine/blob/main/examples/cluster-kubeadm.yaml) does:
   cloud-init's Oracle datasource sets `instance_id` to the instance OCID, so
   the Node carries exactly this module's `provider_id` from its first
   registration, with or without the cloud controller manager.
@@ -219,7 +247,7 @@ spec:
 ```
 
 The complete cluster is in
-[`examples/cluster-kubeadm.yaml`](examples/cluster-kubeadm.yaml).
+[`examples/cluster-kubeadm.yaml`](https://github.com/captf-io/terraform-oci-machine/blob/main/examples/cluster-kubeadm.yaml).
 
 ## Development
 
