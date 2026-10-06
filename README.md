@@ -36,13 +36,13 @@ of the module contract. It creates one compute instance per
 subnet and network security group, and, for a control-plane machine,
 registered in the API load balancer.
 
-The module image is `ghcr.io/captf-io/oci-machine`, published from
-[oci-modules](https://github.com/captf-io/oci-modules). Design decisions are
+The module image is `ghcr.io/captf-io/module-images/oci-machine`, built and published by
+[module-images](https://github.com/captf-io/module-images) from this repository's releases. Design decisions are
 in [DESIGN.md](https://github.com/captf-io/terraform-oci-machine/blob/main/DESIGN.md).
 
 ## Using it
 
-CAPTF runs this module from the module image `ghcr.io/captf-io/oci-machine`: set
+CAPTF runs this module from the module image `ghcr.io/captf-io/module-images/oci-machine`: set
 the image on a `TerraformMachine`'s `spec.source.image` (through a
 `TerraformMachineTemplate`), and the controller renders every input. The module
 is also published to the Terraform Registry as `captf-io/machine/oci` and can be
@@ -165,7 +165,7 @@ The image's `io.captf.capacity` (`{"cpu":"4","memory":"16Gi"}`) and
 `io.captf.node-info` (`amd64`, `linux`) labels describe the default shape,
 for Cluster Autoscaler scale-from-zero. A template that changes the shape
 should use an image built with matching `MACHINE_CAPACITY` and
-`MACHINE_ARCH` (see the [oci-modules Makefile](https://github.com/captf-io/oci-modules/blob/main/Makefile)).
+`MACHINE_ARCH` (see the [archived oci-modules Makefile](https://github.com/captf-io/oci-modules/blob/main/Makefile)).
 
 ## Outputs
 
@@ -191,7 +191,7 @@ The machine role exports nothing; it reads the cluster's `exports`
 ## Identity Secret
 
 The cluster's identity, unless the template sets its own `identityRef`. See
-the [oci-modules README](https://github.com/captf-io/oci-modules#using-it). The region comes from the
+the [archived oci-modules README](https://github.com/captf-io/oci-modules#using-it). The region comes from the
 cluster's exports.
 
 ## Bootstrap
@@ -265,7 +265,7 @@ spec:
   template:
     spec:
       source:
-        image: ghcr.io/captf-io/oci-machine:v0.1.0-opentofu
+        image: ghcr.io/captf-io/module-images/oci-machine:v0.1.0-opentofu
       variables:
         image_id: ocid1.image.oc1.iad.<id>
         boot_volume_size_gib: 200
@@ -301,8 +301,8 @@ the gate. Override variables on the command line, for example
 
 `tfcapi-lint` is built from the provider repository, found through
 `PROVIDER_DIR` (default `../cluster-api-provider-terraform`). The repository
-holds the code only: the module images are built and published from
-[oci-modules](https://github.com/captf-io/oci-modules).
+holds the code only: the module images are built and published by
+[module-images](https://github.com/captf-io/module-images) from this repository's releases.
 
 <br>
 <p align="center">

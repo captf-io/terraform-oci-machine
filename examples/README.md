@@ -1,6 +1,6 @@
 # Examples
 
-Manifests that use the OCI module images (built from [oci-modules](https://github.com/captf-io/oci-modules)), written for
+Manifests that use the OCI module images (built by [module-images](https://github.com/captf-io/module-images)), written for
 `clusterctl generate yaml --from <file>`: `${VARIABLE}` is substituted from
 the environment, `${VARIABLE:=default}` falls back to the default.
 
@@ -11,6 +11,6 @@ the environment, `${VARIABLE:=default}` falls back to the default.
 
 The manifests pin every image to a release, `v0.1.0-opentofu`: change the
 tag to the release you deploy (`vX.Y.Z-opentofu` or `vX.Y.Z-terraform`), or
-to a digest. The moving tags (`opentofu`, `terraform`, `edge-<runtime>`) are
+to a digest. The moving tags (`opentofu`, `terraform`) are
 for trying things out, never for anything you keep. The quick start in the
-[oci-modules README](https://github.com/captf-io/oci-modules#using-it) walks through them in order.
+[archived oci-modules README](https://github.com/captf-io/oci-modules#using-it) walks through them in order.
