@@ -13,4 +13,4 @@ The manifests pin every image to a release, `v0.1.0-opentofu`: change the
 tag to the release you deploy (`vX.Y.Z-opentofu` or `vX.Y.Z-terraform`), or
 to a digest. The moving tags (`opentofu`, `terraform`) are
 for trying things out, never for anything you keep. The quick start in the
-[archived oci-modules README](https://github.com/captf-io/oci-modules#using-it) walks through them in order.
+[OCI cloud modules docs](https://captf.io/docs/cloud-modules/oci/) walks through them in order.

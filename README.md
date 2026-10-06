@@ -164,8 +164,9 @@ User variables (`spec.template.spec.variables` on the
 The image's `io.captf.capacity` (`{"cpu":"4","memory":"16Gi"}`) and
 `io.captf.node-info` (`amd64`, `linux`) labels describe the default shape,
 for Cluster Autoscaler scale-from-zero. A template that changes the shape
-should use an image built with matching `MACHINE_CAPACITY` and
-`MACHINE_ARCH` (see the [archived oci-modules Makefile](https://github.com/captf-io/oci-modules/blob/main/Makefile)).
+should use an image built with a matching `capacity` and `arch` (see
+[`images.json`](https://github.com/captf-io/module-images/blob/main/images.json)
+in module-images).
 
 ## Outputs
 
@@ -191,7 +192,7 @@ The machine role exports nothing; it reads the cluster's `exports`
 ## Identity Secret
 
 The cluster's identity, unless the template sets its own `identityRef`. See
-the [archived oci-modules README](https://github.com/captf-io/oci-modules#using-it). The region comes from the
+the [OCI cloud modules docs](https://captf.io/docs/cloud-modules/oci/). The region comes from the
 cluster's exports.
 
 ## Bootstrap
